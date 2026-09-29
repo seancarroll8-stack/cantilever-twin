@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Cantilever twin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@500;600&display=swap">
+<style>
+  :root {
+    --film: #E4EBE8;
+    --paper: #F6F8F7;
+    --ink: #1B2A35;
+    --ink-soft: #566A74;
+    --rule: #B7C4C0;
+    --steel: #2F5D8A;
+    --ok: #2B7A4B;
+    --warn: #B07400;
+    --bad: #C0392B;
+    --hivis: #F2D22E;
+    --sans: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --num: "Barlow Condensed", "Barlow", "Arial Narrow", system-ui, sans-serif;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --film: #121A1F; --paper: #1A242A; --ink: #E3EBE8; --ink-soft: #9AABB3;
+      --rule: #33434B; --steel: #86B4E2; --ok: #5DC08B; --warn: #E7B548; --bad: #F0705F;
+    }
+  }
+  :root[data-theme="dark"] {
+    --film: #121A1F; --paper: #1A242A; --ink: #E3EBE8; --ink-soft: #9AABB3;
+    --rule: #33434B; --steel: #86B4E2; --ok: #5DC08B; --warn: #E7B548; --bad: #F0705F;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html { scroll-padding-top: env(safe-area-inset-top, 0px); }
+  body { margin: 0; background: var(--film); color: var(--ink); font-family: var(--sans); font-size: 1.0625rem; line-height: 1.45; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 1.25rem clamp(1rem, 3vw, 2rem) 2.5rem; }
+
+  header.top { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: .75rem 1.5rem; }
+  h1 { font-family: var(--num); font-weight: 600; font-size: clamp(2.2rem, 5vw, 3.4rem); line-height: 1; margin: 0; }
+  .sub { margin: .35rem 0 0; color: var(--ink-soft); max-width: 40rem; }
+  .source { margin: 0; font-weight: 500; padding: .45rem .85rem; border-radius: 999px; border: 1.5px solid var(--rule); background: var(--paper); max-width: 36rem; }
+  .source::before { content: ""; display: inline-block; width: .6rem; height: .6rem; border-radius: 50%; margin-right: .5rem; background: var(--ink-soft); }
+  .source[data-state="live"]::before { background: var(--ok); }
+  .source[data-state="waiting"]::before { background: var(--warn); }
+  .source[data-state="offline"]::before { background: var(--bad); }
+  .source[data-state="sim"]::before { background: var(--steel); }
+
+  /* The AEC 4.0 loop from the Week 1 lecture. Each reading lights it up in order. */
+  .loop { list-style: none; margin: 1.25rem 0 .5rem; padding: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 4px; counter-reset: stage; }
+  .loop li { counter-increment: stage; padding: .5rem .6rem .6rem; background: var(--paper); border-top: 5px solid var(--rule); font-size: .88rem; line-height: 1.2; transition: border-color .2s, background-color .2s; }
+  .loop li::before { content: counter(stage); display: block; font-family: var(--num); font-weight: 600; font-size: 1.4rem; line-height: 1.1; color: var(--ink-soft); }
+  .loop li.hot, .loop li.pending { border-top-color: var(--hivis); background: #FBF0B4; color: #1B2A35; }
+  .loop li.hot::before, .loop li.pending::before { color: #1B2A35; }
+  .loop li.on { border-top-color: var(--ok); }
+  .loop li.absent { border-top-style: dashed; background: transparent; color: var(--ink-soft); }
+  .loop-note { margin: 0 0 1rem; font-size: .92rem; color: var(--ink-soft); min-height: 1.35em; }
+  @media (max-width: 760px) { .loop { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+
+  .grid { display: grid; grid-template-columns: minmax(0, 1.9fr) minmax(0, 1fr); gap: 1rem; }
+  .span2 { grid-column: 1 / -1; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .panel { background: var(--paper); border: 1px solid var(--rule); border-radius: 6px; padding: 1rem 1.1rem; min-width: 0; }
+  h2 { font-size: 1rem; font-weight: 600; margin: 0 0 .6rem; }
+
+  svg { display: block; width: 100%; height: auto; }
+  .hatch-line { stroke: var(--ink-soft); stroke-width: 1.4; }
+  .el-support { fill: url(#hatch); stroke: var(--ink); stroke-width: 1.5; }
+  .el-ghost { stroke: var(--ink-soft); stroke-width: 1.5; stroke-dasharray: 6 6; fill: none; }
+  .el-beam { fill: none; stroke-width: 10; stroke: var(--ok); }
+  .el-beam.warn { stroke: var(--warn); }
+  .el-beam.bad { stroke: var(--bad); }
+  .el-phone { fill: var(--ink); }
+  .el-load { stroke: var(--bad); stroke-width: 3; fill: var(--bad); }
+  .el-limit { stroke: var(--bad); stroke-width: 1.5; stroke-dasharray: 4 4; }
+  .el-dim { stroke: var(--ink-soft); stroke-width: 1; }
+  .el-text { fill: var(--ink-soft); font-family: var(--sans); font-size: 14px; }
+  .el-text.strong { fill: var(--ink); font-weight: 600; }
+  .stale .el-beam { stroke: var(--ink-soft); opacity: .55; }
+  .trace-line { fill: none; stroke: var(--steel); stroke-width: 2.5; stroke-linejoin: round; }
+
+  .readout dl { margin: 0; display: grid; grid-template-columns: 1fr auto; gap: .15rem 1rem; align-items: baseline; }
+  .readout dt { color: var(--ink-soft); }
+  .readout dd { margin: 0; font-family: var(--num); font-weight: 600; font-size: 2rem; line-height: 1.1; text-align: right; font-variant-numeric: tabular-nums; }
+  .readout dd small { font-size: 1rem; font-weight: 500; color: var(--ink-soft); margin-left: .2rem; }
+  .util { margin: 1rem 0 .9rem; }
+  .util-track { height: 12px; background: var(--film); border-radius: 6px; overflow: hidden; position: relative; }
+  .util-track::after { content: ""; position: absolute; top: 0; bottom: 0; left: 66.667%; width: 2px; background: var(--ink); }
+  .util-fill { height: 100%; width: 0; background: var(--ok); transition: width .2s; }
+  .verdict { margin: .45rem 0 0; font-weight: 600; }
+
+  button { font: inherit; font-weight: 600; border-radius: 6px; padding: .75rem 1rem; border: 2px solid var(--ink); background: var(--paper); color: var(--ink); cursor: pointer; width: 100%; }
+  button:focus-visible, a:focus-visible, input:focus-visible, summary:focus-visible { outline: 3px solid var(--steel); outline-offset: 2px; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.urgent { background: var(--bad); border-color: var(--bad); color: #fff; }
+  .note { font-size: .92rem; color: var(--ink-soft); margin: .6rem 0 0; }
+  details.assume { margin-top: 1rem; font-size: .92rem; }
+  details.assume summary { cursor: pointer; font-weight: 600; }
+  details.assume p { margin: .5rem 0 0; }
+
+  .join { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; }
+  .join > div:last-child { flex: 1 1 16rem; min-width: 0; }
+  .join p { margin: 0; }
+  .join a { color: var(--steel); word-break: break-all; }
+  #qr { background: #fff; padding: 8px; border-radius: 4px; line-height: 0; }
+  #qr:empty { display: none; }
+  label { display: block; margin-bottom: .35rem; }
+  input[type="range"] { width: 100%; accent-color: var(--steel); }
+
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>Cantilever twin</h1>
+      <p class="sub" id="assetLine">A phone at the tip of a plank, mirrored here in real time.</p>
+    </div>
+    <p class="source" id="source" data-state="connecting" role="status" aria-live="polite">Connecting to the broker…</p>
+  </header>
+
+  <ol class="loop" id="loop" aria-label="The AEC 4.0 loop">
+    <li>Physical asset</li>
+    <li>Data capture</li>
+    <li>Connectivity</li>
+    <li>Digital information</li>
+    <li>Digital representation</li>
+    <li>Analysis</li>
+    <li>Visualisation</li>
+    <li>Decision and action</li>
+  </ol>
+  <p class="loop-note" id="loopNote"></p>
+
+  <div class="grid">
+    <section class="panel" id="elevationPanel" aria-label="Elevation of the cantilever">
+      <h2>Elevation</h2>
+      <svg viewBox="0 0 760 300" role="img" aria-label="Cantilever elevation with the live deflected shape">
+        <defs>
+          <pattern id="hatch" width="9" height="9" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+            <line class="hatch-line" x1="0" y1="0" x2="0" y2="9"/>
+          </pattern>
+        </defs>
+        <rect class="el-support" x="44" y="70" width="36" height="130"/>
+        <line class="el-ghost" x1="80" y1="130" x2="680" y2="130"/>
+        <line class="el-limit" x1="630" x2="730" y1="190" y2="190"/>
+        <text class="el-text" id="limitLabel" x="730" y="210" text-anchor="end">Limit</text>
+        <path class="el-beam" id="beam" d="M80 130 L680 130"/>
+        <g id="phone"><rect class="el-phone" x="-50" y="-17" width="46" height="11" rx="3"/></g>
+        <g id="load" style="opacity:0">
+          <line class="el-load" x1="-27" y1="-78" x2="-27" y2="-32"/>
+          <path class="el-load" d="M-34 -40 L-27 -25 L-20 -40 Z"/>
+        </g>
+        <line class="el-dim" x1="80" y1="250" x2="680" y2="250"/>
+        <line class="el-dim" x1="80" y1="242" x2="80" y2="258"/>
+        <line class="el-dim" x1="680" y1="242" x2="680" y2="258"/>
+        <text class="el-text strong" id="dimLabel" x="380" y="242" text-anchor="middle">L</text>
+        <text class="el-text" id="scaleLabel" x="44" y="290">Vertical scale exaggerated</text>
+      </svg>
+    </section>
+
+    <aside class="panel readout" aria-label="Live readings">
+      <h2>Live readings</h2>
+      <dl>
+        <dt>Tip rotation</dt><dd><span id="rot">–</span><small>°</small></dd>
+        <dt>Tip deflection</dt><dd><span id="defl">–</span><small>mm</small></dd>
+        <dt>Deflection limit</dt><dd><span id="lim">–</span><small>mm</small></dd>
+      </dl>
+      <div class="util">
+        <div class="util-track" aria-hidden="true"><div class="util-fill" id="utilFill"></div></div>
+        <p class="verdict" id="verdict">Waiting for data</p>
+      </div>
+      <button id="actBtn" disabled>Tell site to remove the load</button>
+      <p class="note" id="actNote">Available once a live sensor is connected.</p>
+      <p class="note" id="ackNote" aria-live="polite"></p>
+      <details class="assume">
+        <summary>What the twin assumes</summary>
+        <p>The plank is a cantilever fixed at the clamp with a point load at the tip. For that case the tip deflection is two-thirds of the overhang times the tip rotation in radians. The limit is the overhang divided by the ratio set in the code, which is a demonstration value, not a design criterion.</p>
+      </details>
+    </aside>
+
+    <section class="panel span2" aria-label="Deflection history">
+      <h2>Tip deflection over the last 60 seconds</h2>
+      <svg viewBox="0 0 760 175" role="img" aria-label="Deflection trace against the limit">
+        <line class="el-dim" x1="40" y1="150" x2="750" y2="150"/>
+        <line class="el-limit" id="traceLimit" x1="40" x2="750" y1="60" y2="60"/>
+        <text class="el-text" id="traceLimitLabel" x="44" y="54">Limit</text>
+        <polyline class="trace-line" id="traceLine" points=""/>
+        <text class="el-text" x="40" y="170">60 s ago</text>
+        <text class="el-text" x="750" y="170" text-anchor="end">Now</text>
+      </svg>
+    </section>
+
+    <section class="panel join">
+      <div id="qr"></div>
+      <div>
+        <h2>Make a phone the sensor</h2>
+        <p id="joinText"></p>
+        <p class="note">Twin ID <strong id="twinIdText"></strong>. Add <code>?twin=yourname</code> to this page's address to run a separate twin.</p>
+      </div>
+    </section>
+
+    <section class="panel" id="simPanel" hidden>
+      <h2>Simulated sensor</h2>
+      <label for="simSlider">Drag to load the plank</label>
+      <input type="range" id="simSlider" min="0" max="6" step="0.05" value="0">
+      <p class="note">No physical asset is behind these numbers, so this is a model rather than a twin.</p>
+    </section>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+// =====================================================================
+// CONFIG: the part to change for your own twin
+// =====================================================================
+const CONFIG = {
+  broker: "wss://test.mosquitto.org:8081", // public test broker: no login, no uptime guarantee
+  topicRoot: "mtu/intr9021",               // shared class namespace on the broker
+  assetName: "Bench plank",
+  overhangMm: 600,                          // L, from the clamp to the phone
+  limitRatio: 100,                          // limit = L / limitRatio. Demo value: justify your own.
+  amberAt: 0.75,                            // utilisation where the twin starts warning
+  sensorTimeoutMs: 4000,                    // silence longer than this means the sensor is offline
+  historySeconds: 60,
+};
+
+// Each twin ID gets its own topics, e.g. mtu/intr9021/demo/tilt
+const params = new URLSearchParams(location.search);
+const TWIN_ID = (params.get("twin") || "demo").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 32) || "demo";
+const TOPIC = {
+  tilt: `${CONFIG.topicRoot}/${TWIN_ID}/tilt`, // sensor to twin
+  cmd:  `${CONFIG.topicRoot}/${TWIN_ID}/cmd`,  // twin to site
+  ack:  `${CONFIG.topicRoot}/${TWIN_ID}/ack`,  // site to twin
+};
+
+// =====================================================================
+// Stage 6, analysis: turn a raw tilt reading into an engineering judgement
+// =====================================================================
+function analyse(tiltDeg) {
+  const theta = tiltDeg * Math.PI / 180;       // tip rotation in radians
+  const L = CONFIG.overhangMm;
+  const deflection = (2 / 3) * L * theta;       // tip point load: θ = PL²/2EI, δ = PL³/3EI, so δ = 2Lθ/3
+  const limit = L / CONFIG.limitRatio;
+  const utilisation = deflection / limit;
+  const level = utilisation > 1 ? "bad" : utilisation >= CONFIG.amberAt ? "warn" : "ok";
+  return { tiltDeg, deflection, limit, utilisation, level };
+}
+
+// ---------------------------------------------------------------------
+const $ = id => document.getElementById(id);
+const stages = [...document.querySelectorAll("#loop li")];
+const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+const fmtTime = t => new Date(t).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+let client = null;
+let mode = "connecting";   // connecting | live | sim
+let lastSeen = 0;          // time of the last real sensor reading
+let latest = null;
+const history = [];
+
+function setSource(state, text) { $("source").dataset.state = state; $("source").textContent = text; }
+
+// Light the loop from stage `from` to stage `to`, in order
+let lastPulse = 0;
+function pulse(from, to) {
+  if (reduceMotion) { stages.slice(from - 1, to).forEach(li => li.classList.add("on")); return; }
+  const now = performance.now();
+  if (now - lastPulse < 900) return;
+  lastPulse = now;
+  for (let i = from; i <= to; i++) {
+    const li = stages[i - 1];
+    setTimeout(() => {
+      li.classList.add("hot");
+      setTimeout(() => li.classList.remove("hot"), 320);
+    }, (i - from) * 80);
+  }
+}
+
+function setSimStages(isSim) {
+  stages.slice(0, 3).forEach(li => li.classList.toggle("absent", isSim));
+  $("loopNote").textContent = isSim
+    ? "Stages 1 to 3 are missing because no physical asset is connected. Without them this is a model, not a twin."
+    : "";
+}
+
+// =====================================================================
+// Stage 5 and 7: digital representation and visualisation
+// =====================================================================
+const EL = { x0: 80, y0: 130, len: 600, limitPx: 60, maxPx: 130 };
+
+function drawElevation(r) {
+  const pxPerMm = EL.limitPx / r.limit;                 // the limit is always drawn 60 px below
+  const tipPx = Math.min(r.deflection * pxPerMm, EL.maxPx);
+  // Deflected shape for a tip load: v(x) = δ · x²(3L − x) / 2L³
+  let d = "";
+  for (let i = 0; i <= 40; i++) {
+    const s = i / 40;
+    const v = tipPx * s * s * (3 - s) / 2;
+    d += (i ? " L" : "M") + (EL.x0 + s * EL.len).toFixed(1) + " " + (EL.y0 + v).toFixed(1);
+  }
+  $("beam").setAttribute("d", d);
+  $("beam").setAttribute("class", "el-beam " + r.level);
+  const slopeDeg = Math.atan(1.5 * tipPx / EL.len) * 180 / Math.PI;
+  const tip = `translate(${EL.x0 + EL.len} ${EL.y0 + tipPx})`;
+  $("phone").setAttribute("transform", `${tip} rotate(${slopeDeg.toFixed(2)})`);
+  $("load").setAttribute("transform", `${tip} rotate(${slopeDeg.toFixed(2)})`);
+  $("load").style.opacity = r.utilisation > 0.05 ? 1 : 0;
+}
+
+function drawReadout(r) {
+  $("rot").textContent = r.tiltDeg.toFixed(2);
+  $("defl").textContent = r.deflection.toFixed(1);
+  $("lim").textContent = r.limit.toFixed(1);
+  const pct = Math.round(r.utilisation * 100);
+  $("utilFill").style.width = Math.min(r.utilisation / 1.5, 1) * 100 + "%";
+  $("utilFill").style.background = `var(--${r.level})`;
+  $("verdict").textContent = { ok: `Within limit, ${pct}% used`, warn: `Approaching the limit, ${pct}% used`, bad: `Limit exceeded, ${pct}% used` }[r.level];
+  $("verdict").style.color = `var(--${r.level})`;
+  $("actBtn").classList.toggle("urgent", r.level === "bad" && sensorIsLive());
+}
+
+function drawTrace(limit) {
+  const now = Date.now(), span = CONFIG.historySeconds * 1000;
+  while (history.length && now - history[0].t > span) history.shift();
+  let maxD = limit * 1.6;
+  for (const h of history) if (h.d > maxD) maxD = h.d;
+  const X = t => 40 + (1 - (now - t) / span) * 710;
+  const Y = d => 150 - (d / maxD) * 135;
+  $("traceLine").setAttribute("points", history.map(h => `${X(h.t).toFixed(1)},${Y(h.d).toFixed(1)}`).join(" "));
+  const ly = Y(limit).toFixed(1);
+  $("traceLimit").setAttribute("y1", ly);
+  $("traceLimit").setAttribute("y2", ly);
+  $("traceLimitLabel").setAttribute("y", (ly - 6).toFixed(1));
+}
+
+// Every reading, real or simulated, passes through here
+function handleReading(tiltDeg, fromSim) {
+  const r = analyse(Math.max(0, Math.min(45, tiltDeg)));
+  latest = r;
+  if (!fromSim) {
+    lastSeen = Date.now();
+    if ($("source").dataset.state !== "live") setSource("live", "Live: receiving readings from the sensor.");
+    $("elevationPanel").classList.remove("stale");
+  }
+  history.push({ t: Date.now(), d: r.deflection });
+  drawElevation(r);
+  drawReadout(r);
+  drawTrace(r.limit);
+  pulse(fromSim ? 4 : 1, 7);
+  updateAct();
+}
+
+// =====================================================================
+// Stage 8, decision and action: a person decides, the twin tells site
+// =====================================================================
+function sensorIsLive() { return mode === "live" && lastSeen && Date.now() - lastSeen <= CONFIG.sensorTimeoutMs; }
+
+function updateAct() {
+  const live = sensorIsLive();
+  $("actBtn").disabled = !live;
+  $("actNote").textContent = live
+    ? "Sends an instruction to the phone on site."
+    : mode === "sim"
+      ? "Needs a live sensor. In a simulation there is nobody on site to tell."
+      : "Available once a live sensor is connected.";
+}
+
+$("actBtn").addEventListener("click", () => {
+  if (!client || !latest) return;
+  const msg = {
+    action: "remove-load",
+    text: "Remove the load from the plank",
+    deflection_mm: +latest.deflection.toFixed(1),
+    limit_mm: +latest.limit.toFixed(1),
+    t: Date.now(),
+  };
+  client.publish(TOPIC.cmd, JSON.stringify(msg));
+  stages[7].classList.remove("on");
+  stages[7].classList.add("pending");
+  $("ackNote").textContent = `Instruction sent at ${fmtTime(msg.t)}. Waiting for site to confirm.`;
+});
+
+function onAck(data) {
+  stages[7].classList.remove("pending");
+  stages[7].classList.add("on");
+  $("ackNote").textContent = `Site confirmed the load was removed at ${fmtTime(data.t || Date.now())}.`;
+}
+
+// =====================================================================
+// Stage 3, connectivity: subscribe to the sensor over MQTT
+// =====================================================================
+function enterSim(message) {
+  mode = "sim";
+  setSource("sim", message);
+  $("simPanel").hidden = false;
+  setSimStages(true);
+  handleReading(+$("simSlider").value, true);
+}
+
+function connect() {
+  if (!window.mqtt) { enterSim("The MQTT library didn't load, so the twin is running on simulated data."); return; }
+  const host = CONFIG.broker.replace(/^wss?:\/\//, "").replace(/[:/].*$/, "");
+  setSource("connecting", `Connecting to ${host}…`);
+  const giveUp = setTimeout(() => {
+    if (mode !== "live") enterSim(`Can't reach ${host} from here, so the twin is running on simulated data. It switches to live if the broker becomes reachable.`);
+  }, 8000);
+  try {
+    client = mqtt.connect(CONFIG.broker, {
+      clientId: `twin-${TWIN_ID}-${Math.random().toString(16).slice(2, 8)}`,
+      reconnectPeriod: 5000,
+      connectTimeout: 7000,
+    });
+  } catch (e) {
+    clearTimeout(giveUp);
+    enterSim(`Couldn't start a connection to ${host}, so the twin is running on simulated data.`);
+    return;
+  }
+  client.on("connect", () => {
+    clearTimeout(giveUp);
+    if (mode === "sim") { history.length = 0; }
+    mode = "live";
+    $("simPanel").hidden = true;
+    setSimStages(false);
+    client.subscribe([TOPIC.tilt, TOPIC.ack]);
+    if (!sensorIsLive()) setSource("waiting", "Connected. Waiting for the sensor: scan the code with a phone.");
+    updateAct();
+  });
+  client.on("message", (topic, payload) => {
+    let data;
+    try { data = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (topic === TOPIC.tilt && typeof data.tilt_deg === "number" && isFinite(data.tilt_deg)) handleReading(data.tilt_deg, false);
+    if (topic === TOPIC.ack) onAck(data);
+  });
+  client.on("offline", () => { if (mode === "live") setSource("offline", "Lost the connection to the broker. Retrying…"); });
+}
+
+// Watchdog: a twin should notice when its data stops
+setInterval(() => {
+  if (latest) drawTrace(latest.limit);
+  if (mode === "live" && lastSeen && !sensorIsLive() && $("source").dataset.state === "live") {
+    setSource("offline", `Sensor offline. Showing the last known state from ${fmtTime(lastSeen)}.`);
+    $("elevationPanel").classList.add("stale");
+    stages.forEach(li => li.classList.remove("on"));
+    $("actBtn").classList.remove("urgent");
+    updateAct();
+  }
+}, 1000);
+
+// ---------------------------------------------------------------------
+function setupJoin() {
+  $("twinIdText").textContent = TWIN_ID;
+  let url = null;
+  try {
+    if (/^https?:$/.test(location.protocol)) {
+      const u = new URL("sensor.html", location.href);
+      u.search = "?twin=" + encodeURIComponent(TWIN_ID);
+      url = u.href;
+    }
+  } catch (e) { url = null; }
+  const p = $("joinText");
+  if (url) {
+    p.textContent = "Scan with a phone, or open ";
+    const a = document.createElement("a");
+    a.href = url; a.textContent = url; a.target = "_blank"; a.rel = "noopener";
+    p.appendChild(a);
+    if (window.QRCode) {
+      new QRCode($("qr"), { text: url, width: 148, height: 148, colorDark: "#1B2A35", colorLight: "#ffffff", correctLevel: QRCode.CorrectLevel.M });
+    }
+  } else {
+    p.textContent = "Once these files are on GitHub Pages, a QR code for the phone sensor appears here. To test on one computer, open sensor.html in a second tab and use its slider.";
+  }
+}
+
+function init() {
+  const L = CONFIG.overhangMm;
+  const r0 = analyse(0);
+  $("assetLine").textContent = `${CONFIG.assetName}: a phone at the tip of a ${L} mm overhang, mirrored here in real time.`;
+  $("dimLabel").textContent = `L = ${L} mm`;
+  $("limitLabel").textContent = `Limit L/${CONFIG.limitRatio} = ${r0.limit.toFixed(1)} mm`;
+  $("traceLimitLabel").textContent = `Limit ${r0.limit.toFixed(1)} mm`;
+  const exaggeration = (EL.limitPx / r0.limit) / (EL.len / L);
+  $("scaleLabel").textContent = `Vertical scale exaggerated ×${exaggeration.toFixed(0)}`;
+  drawElevation(r0);
+  drawTrace(r0.limit);
+  $("simSlider").addEventListener("input", e => { if (mode === "sim") handleReading(+e.target.value, true); });
+  setupJoin();
+  connect();
+}
+init();
+</script>
+</body>
+</html>

@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F2D22E">
+<title>Plank sensor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Condensed:wght@600&display=swap">
+<style>
+  /* Deliberately hi-vis in every theme: this page is a site instrument. */
+  :root {
+    --hivis: #F2D22E;
+    --ink: #15191C;
+    --ink-soft: #4A4633;
+    --paper: #FFF7D1;
+    --bad: #C0392B;
+    --sans: "Barlow", system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+    --num: "Barlow Condensed", "Barlow", "Arial Narrow", system-ui, sans-serif;
+    color-scheme: light;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--hivis); color: var(--ink); font-family: var(--sans); font-size: 1.0625rem; line-height: 1.45; }
+  .wrap { max-width: 30rem; margin: 0 auto; padding: 1.25rem 1.25rem 2rem; display: flex; flex-direction: column; gap: 1rem; }
+  h1 { font-family: var(--num); font-weight: 600; font-size: 2.4rem; line-height: 1; margin: 0; }
+  .meta { margin: .25rem 0 0; color: var(--ink-soft); }
+  .status { margin: 0; font-weight: 600; padding: .55rem .8rem; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper); }
+  .reading { margin: 0; font-family: var(--num); font-weight: 600; font-size: clamp(5rem, 28vw, 8rem); line-height: .9; font-variant-numeric: tabular-nums; }
+  .reading small { font-size: .4em; }
+  .reading-label { margin: .3rem 0 0; color: var(--ink-soft); }
+  button { font: inherit; font-weight: 600; padding: .9rem 1rem; border-radius: 6px; border: 2.5px solid var(--ink); background: var(--ink); color: var(--hivis); width: 100%; cursor: pointer; }
+  button.secondary { background: transparent; color: var(--ink); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button:focus-visible, input:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+  .note { margin: 0; font-size: .95rem; }
+  label { display: block; font-weight: 600; margin-bottom: .35rem; }
+  input[type="range"] { width: 100%; accent-color: var(--ink); }
+  .alert { position: fixed; inset: 0; background: var(--bad); color: #fff; display: flex; flex-direction: column; justify-content: center; gap: 1rem;
+           padding: calc(env(safe-area-inset-top, 0px) + 2rem) 1.5rem calc(env(safe-area-inset-bottom, 0px) + 2rem); }
+  .alert[hidden] { display: none; }
+  .alert h2 { font-family: var(--num); font-size: 3.2rem; line-height: 1; margin: 0; }
+  .alert p { margin: 0; font-size: 1.2rem; }
+  .alert button { background: #fff; color: var(--bad); border-color: #fff; }
+  .alert button:focus-visible { outline-color: #fff; }
+</style>
+</head>
+<body>
+<main class="wrap">
+  <header>
+    <h1>Plank sensor</h1>
+    <p class="meta">Twin ID <strong id="twinId"></strong></p>
+  </header>
+  <p class="status" id="status" role="status" aria-live="polite">Connecting to the broker…</p>
+  <div>
+    <p class="reading"><span id="reading">0.00</span><small>°</small></p>
+    <p class="reading-label">Tilt from zero</p>
+  </div>
+  <button id="startBtn">Start phone sensor</button>
+  <button id="zeroBtn" class="secondary" disabled>Set zero</button>
+  <p class="note" id="hint">Tape the phone flat at the free end of the plank, start the sensor, then set zero before you load it.</p>
+  <div>
+    <label for="slider">No tilt sensor? Drag to tilt</label>
+    <input type="range" id="slider" min="0" max="6" step="0.05" value="0">
+  </div>
+</main>
+
+<div class="alert" id="alert" hidden role="alertdialog" aria-labelledby="alertTitle" aria-describedby="alertText">
+  <h2 id="alertTitle">Remove the load</h2>
+  <p id="alertText"></p>
+  <button id="ackBtn">Done, load removed</button>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5/dist/mqtt.min.js"></script>
+<script>
+// =====================================================================
+// CONFIG: must match the twin page
+// =====================================================================
+const CONFIG = {
+  broker: "wss://test.mosquitto.org:8081",
+  topicRoot: "mtu/intr9021",
+  publishEveryMs: 250,   // four readings a second
+};
+
+const params = new URLSearchParams(location.search);
+const TWIN_ID = (params.get("twin") || "demo").toLowerCase().replace(/[^a-z0-9-]/g, "").slice(0, 32) || "demo";
+const TOPIC = {
+  tilt: `${CONFIG.topicRoot}/${TWIN_ID}/tilt`,
+  cmd:  `${CONFIG.topicRoot}/${TWIN_ID}/cmd`,
+  ack:  `${CONFIG.topicRoot}/${TWIN_ID}/ack`,
+};
+
+const $ = id => document.getElementById(id);
+$("twinId").textContent = TWIN_ID;
+
+let client = null, connected = false;
+let source = "slider";      // slider | phone
+let tilt = 0;               // degrees from the zero position
+let beta0 = null, gamma0 = null, lastBeta = null, lastGamma = null, gotEvent = false;
+
+// =====================================================================
+// Stage 2, data capture: the phone's orientation sensor
+// =====================================================================
+function onOrientation(e) {
+  if (e.beta == null || e.gamma == null) return;
+  gotEvent = true;
+  lastBeta = e.beta;
+  lastGamma = e.gamma;
+  if (beta0 === null) { beta0 = e.beta; gamma0 = e.gamma; }
+  const raw = Math.hypot(e.beta - beta0, e.gamma - gamma0); // works whichever way the phone lies
+  tilt += 0.3 * (raw - tilt);                                // smooth out hand jitter
+}
+
+function stopPhone(message) {
+  window.removeEventListener("deviceorientation", onOrientation);
+  source = "slider";
+  $("slider").disabled = false;
+  $("startBtn").disabled = false;
+  $("startBtn").textContent = "Start phone sensor";
+  $("zeroBtn").disabled = true;
+  $("hint").textContent = message;
+}
+
+$("startBtn").addEventListener("click", async () => {
+  if (!window.isSecureContext) { $("hint").textContent = "The tilt sensor only works over https. Open this page from GitHub Pages, or use the slider."; return; }
+  if (typeof DeviceOrientationEvent === "undefined") { $("hint").textContent = "This browser doesn't report tilt. Use the slider instead."; return; }
+  if (typeof DeviceOrientationEvent.requestPermission === "function") {   // iPhone and iPad
+    try {
+      const answer = await DeviceOrientationEvent.requestPermission();
+      if (answer !== "granted") { $("hint").textContent = "Motion access was declined. Allow it for this site in Safari settings, then reload."; return; }
+    } catch (err) {
+      $("hint").textContent = "Couldn't ask for motion access. Reload the page and tap Start again.";
+      return;
+    }
+  }
+  gotEvent = false; beta0 = null; gamma0 = null; tilt = 0;
+  window.addEventListener("deviceorientation", onOrientation);
+  source = "phone";
+  $("startBtn").disabled = true;
+  $("startBtn").textContent = "Sensor running";
+  $("zeroBtn").disabled = false;
+  $("slider").disabled = true;
+  $("hint").textContent = "Lay the phone on the plank, then set zero.";
+  keepAwake();
+  setTimeout(() => { if (!gotEvent) stopPhone("This device isn't reporting tilt. Use the slider instead."); }, 2000);
+});
+
+$("zeroBtn").addEventListener("click", () => {
+  beta0 = lastBeta; gamma0 = lastGamma; tilt = 0;
+  $("hint").textContent = "Zero set. Press down on the free end of the plank.";
+});
+
+$("slider").addEventListener("input", e => { if (source === "slider") tilt = +e.target.value; });
+
+// Stop the screen sleeping mid-demo
+let wakeLock = null;
+async function keepAwake() {
+  try { if ("wakeLock" in navigator) wakeLock = await navigator.wakeLock.request("screen"); } catch (e) { /* not supported */ }
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && source === "phone") keepAwake();
+});
+
+// =====================================================================
+// Stage 3, connectivity: publish readings, listen for instructions
+// =====================================================================
+function connect() {
+  if (!window.mqtt) { $("status").textContent = "The MQTT library didn't load. Check the internet connection and reload."; return; }
+  client = mqtt.connect(CONFIG.broker, {
+    clientId: `sensor-${TWIN_ID}-${Math.random().toString(16).slice(2, 8)}`,
+    reconnectPeriod: 4000,
+    connectTimeout: 7000,
+  });
+  client.on("connect", () => {
+    connected = true;
+    client.subscribe(TOPIC.cmd);
+    $("status").textContent = "Connected. Sending readings to the twin.";
+  });
+  client.on("offline", () => { connected = false; $("status").textContent = "Lost the connection. Retrying…"; });
+  client.on("message", (topic, payload) => {
+    if (topic !== TOPIC.cmd) return;
+    let data;
+    try { data = JSON.parse(payload.toString()); } catch (e) { return; }
+    showAlert(data);
+  });
+}
+
+setInterval(() => {
+  $("reading").textContent = tilt.toFixed(2);
+  if (source === "phone") $("slider").value = Math.min(tilt, 6);
+  if (connected) client.publish(TOPIC.tilt, JSON.stringify({ tilt_deg: +tilt.toFixed(3), source, t: Date.now() }));
+}, CONFIG.publishEveryMs);
+
+// =====================================================================
+// Stage 8 arriving on site
+// =====================================================================
+function showAlert(data) {
+  $("alertText").textContent = (data.deflection_mm != null && data.limit_mm != null)
+    ? `The twin measured ${data.deflection_mm} mm at the tip, against a limit of ${data.limit_mm} mm.`
+    : "The twin has asked for the load to be removed.";
+  $("alert").hidden = false;
+  $("ackBtn").focus();
+  if (navigator.vibrate) navigator.vibrate([300, 120, 300]);
+}
+
+$("ackBtn").addEventListener("click", () => {
+  $("alert").hidden = true;
+  if (connected) client.publish(TOPIC.ack, JSON.stringify({ action: "load-removed", t: Date.now() }));
+});
+
+connect();
+</script>
+</body>
+</html>
